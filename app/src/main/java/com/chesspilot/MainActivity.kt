@@ -1,7 +1,6 @@
 package com.chesspilot
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.WebResourceError
@@ -12,6 +11,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -23,7 +23,7 @@ import com.chesspilot.security.ChessComHostPolicy
  * Board recognition and engine recommendations are intentionally not enabled
  * until game mode and a complete, validated position can be established.
  */
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var statusText: TextView
 
@@ -51,7 +51,7 @@ class MainActivity : Activity() {
         }
 
         webView = WebView(this).apply {
-            settings.javaScriptEnabled = true // Required for Chess.com.
+            settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
