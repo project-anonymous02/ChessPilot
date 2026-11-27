@@ -41,19 +41,28 @@ class PgnReplayTest {
     }
 
     @Test
-    fun rejectsInvalidSanSequence() {
+    fun rejectsInvalidSanSequenceAtTheStartPosition() {
         val result = PgnReplay.replaySanMovetext("1. e5")
-        assertFalse(result is PgnReplayResult.Valid)
+        assertTrue("Expected invalid SAN to be rejected, got $result", result is PgnReplayResult.Invalid)
     }
 
     @Test
-    fun recordsEachIntermediatePosition() {
+    fun rejectsAnIllegalMoveLaterInTheSequence() {
+        val result = PgnReplay.replaySanMovetext("1. e4 e5 2. e5")
+        assertTrue("Expected illegal continuation to be rejected, got $result", result is PgnReplayResult.Invalid)
+    }
+
+    @Test
+    fun recordsEachIntermediatePositionIncludingEnPassantState() {
         val result = PgnReplay.replaySanMovetext("1. e4 e5 2. Nf3")
-        assertTrue(result is PgnReplayResult.Valid)
+        assertTrue("Expected valid replay, got $result", result is PgnReplayResult.Valid)
 
         val positions = (result as PgnReplayResult.Valid).snapshot.positionsAfterEachPly
         assertEquals(3, positions.size)
-        assertTrue(positions[0].contains(" b KQkq - 0 1"))
-        assertTrue(positions[2].contains(" b KQkq - 1 2"))
+
+        // FEN records the e3 target square after the white pawn's two-square
+        // advance even when no black pawn can currently capture en-passant.
+        assertTrue("Unexpected FEN after 1.e4: ${positions[0]}", positions[0].contains(" b KQkq e3 0 1"))
+        assertTrue("Unexpected FEN after 2.Nf3: ${positions[2]}", positions[2].contains(" b KQkq - 1 2"))
     }
 }

@@ -6,9 +6,9 @@ import com.github.bhlangonijr.chesslib.move.MoveList
 /**
  * Replays standard-start PGN SAN movetext into a verified board history.
  *
- * This intentionally accepts SAN movetext (for example, "1. e4 e5 2. Nf3"),
- * not arbitrary full PGN documents. Tags/comments/variations must be normalized
- * by a dedicated PGN document parser before this API is called.
+ * This accepts SAN mainline movetext (for example, "1. e4 e5 2. Nf3"),
+ * not arbitrary full PGN documents with headers, comments, or variations.
+ * Those must be normalized by a dedicated PGN document parser first.
  */
 data class PgnReplaySnapshot(
     val finalFen: String,
@@ -24,8 +24,6 @@ sealed interface PgnReplayResult {
 object PgnReplay {
     private const val MAX_MOVETEXT_LENGTH = 200_000
     private const val MAX_PLIES = 1_000
-
-    private val resultToken = setOf("1-0", "0-1", "1/2-1/2", "*")
 
     fun replaySanMovetext(movetext: String): PgnReplayResult {
         val normalized = movetext.trim()
@@ -48,20 +46,35 @@ object PgnReplay {
             }
 
             val board = Board()
+            val sanMoves = ArrayList<String>(moveList.size)
             val positions = ArrayList<String>(moveList.size)
 
             for (move in moveList) {
-                if (!board.isMoveLegal(move, true)) {
-                    return invalid("Urutan langkah mengandung langkah ilegal.")
+                // Board.isMoveLegal validates board-state consistency, but it is
+                // not the same as membership in the generated legal move list.
+                // Compare against legalMoves() to reject SAN that resolves to
+                // an impossible move from the current side-to-move position.
+                val moveUci = move.toString().lowercase()
+                val legalMoveUcis = board.legalMoves()
+                    .map { legalMove -> legalMove.toString().lowercase() }
+                    .toHashSet()
+
+                if (moveUci !in legalMoveUcis) {
+                    return invalid("Urutan langkah mengandung langkah ilegal: $moveUci.")
                 }
-                board.doMove(move)
+
+                if (!board.doMove(move)) {
+                    return invalid("Langkah tidak dapat diterapkan: $moveUci.")
+                }
+
+                sanMoves.add(moveList.toSanArray()[sanMoves.size])
                 positions.add(board.getFen())
             }
 
             PgnReplayResult.Valid(
                 PgnReplaySnapshot(
                     finalFen = board.getFen(),
-                    sanMoves = moveList.toSanArray().toList(),
+                    sanMoves = sanMoves,
                     positionsAfterEachPly = positions
                 )
             )
