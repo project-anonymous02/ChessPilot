@@ -11,7 +11,7 @@ ChessPilot is an Android companion shell for Chess.com with a verified chess-pos
 - Chesslib adapter for legal move generation and UCI legality checks
 - SAN movetext replay from the standard starting position
 - Stockfish 19 ARM64 UCI executable, fetched from the official release and SHA-256 verified in CI
-- Native engine process runs off the UI thread with bounded search depth and serialized requests
+- Manual FEN analysis UI; native engine process runs off the UI thread
 - UCI info, score, principal variation, bestmove and ponder parsing
 - Automated GitHub Actions unit tests and debug APK artifact
 
@@ -27,7 +27,7 @@ The current APK targets arm64-v8a devices. The engine binary is licensed under G
 
 ## Fair-play boundary
 
-Stockfish is exposed as an offline FEN analysis tool for training positions and completed-game review. Do not use engine recommendations during an ongoing game against a human. The current milestone does not read live game positions from Chess.com and does not draw move hints over its board.
+Stockfish is exposed as an offline FEN analysis tool for training positions, completed-game review, or permitted bot-game analysis. Do not use engine recommendations during an ongoing game against a human. This milestone does not read live game positions from Chess.com and does not draw move hints over its board.
 
 ## Roadmap
 

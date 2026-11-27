@@ -3,33 +3,45 @@ package com.chesspilot
 import android.annotation.SuppressLint
 import android.net.Uri
 import android.os.Bundle
+import android.text.InputType
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.chesspilot.chess.ChessRulesValidator
+import com.chesspilot.chess.ChessRulesResult
+import com.chesspilot.engine.EngineResult
+import com.chesspilot.engine.StockfishEngine
 import com.chesspilot.security.ChessComHostPolicy
 
 /**
- * First Android shell: Chess.com browser plus a native ChessPilot status panel.
+ * Chess.com browser shell plus offline FEN analysis.
  *
- * Board recognition and engine recommendations are intentionally not enabled
- * until game mode and a complete, validated position can be established.
+ * Engine analysis is manual and intended only for training positions,
+ * completed-game review, or permitted bot-game analysis. No live human-game
+ * board is read and no move hints are injected into Chess.com.
  */
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var statusText: TextView
+    private lateinit var fenInput: EditText
+    private lateinit var analyzeButton: Button
+    private lateinit var resultText: TextView
+    private lateinit var engine: StockfishEngine
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        engine = StockfishEngine(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -37,7 +49,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val header = TextView(this).apply {
-            text = "CHESSPILOT  •  ANDROID PREVIEW"
+            text = "CHESSPILOT  •  ANDROID"
             textSize = 16f
             setTextColor(0xFFFFFFFF.toInt())
             setPadding(18, 16, 18, 12)
@@ -78,8 +90,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    statusText.text =
-                        "Chess.com dimuat. Pengenalan posisi belum diaktifkan."
+                    statusText.text = "Chess.com dimuat. Analisis FEN tersedia di panel bawah."
                 }
 
                 override fun onReceivedError(
@@ -88,8 +99,7 @@ class MainActivity : ComponentActivity() {
                     error: WebResourceError?
                 ) {
                     if (request?.isForMainFrame == true) {
-                        statusText.text =
-                            "Halaman gagal dimuat. Periksa koneksi lalu muat ulang."
+                        statusText.text = "Halaman gagal dimuat. Periksa koneksi lalu muat ulang."
                     }
                 }
             }
@@ -106,19 +116,47 @@ class MainActivity : ComponentActivity() {
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(18, 12, 18, 16)
+            setPadding(16, 10, 16, 14)
             setBackgroundColor(0xFF1A2029.toInt())
         }
-
         panel.addView(statusText)
 
-        val detail = TextView(this).apply {
-            text = "Analisis akan tersedia setelah posisi dan jenis permainan terverifikasi."
-            textSize = 12f
-            setTextColor(0xFF9CA3AF.toInt())
-            setPadding(0, 8, 0, 10)
+        val notice = TextView(this).apply {
+            text = "Analisis offline untuk latihan, partai selesai, atau partai bot yang diizinkan. Jangan gunakan rekomendasi engine saat melawan manusia."
+            textSize = 11f
+            setTextColor(0xFFFFD27D.toInt())
+            setPadding(0, 6, 0, 8)
         }
-        panel.addView(detail)
+        panel.addView(notice)
+
+        fenInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            singleLine = false
+            minLines = 2
+            maxLines = 3
+            textSize = 12f
+            setTextColor(0xFFFFFFFF.toInt())
+            setHintTextColor(0xFF9CA3AF.toInt())
+            setHint("Masukkan FEN enam bagian")
+            setText("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+            setPadding(10, 8, 10, 8)
+            setBackgroundColor(0xFF252D39.toInt())
+        }
+        panel.addView(fenInput)
+
+        analyzeButton = Button(this).apply {
+            text = "Analisis posisi"
+            setOnClickListener { analyzePosition() }
+        }
+        panel.addView(analyzeButton)
+
+        resultText = TextView(this).apply {
+            text = "Stockfish 19 siap setelah binary ARM64 tersedia."
+            textSize = 12f
+            setTextColor(0xFFE5E7EB.toInt())
+            setPadding(0, 6, 0, 4)
+        }
+        panel.addView(resultText)
 
         val reload = Button(this).apply {
             text = "Muat ulang Chess.com"
@@ -140,7 +178,6 @@ class MainActivity : ComponentActivity() {
                 )
             ) { _, _, sourceOrigin, isMainFrame, _ ->
                 // No page-to-native commands are accepted in this phase.
-                // Future messages must be schema-validated and mode-gated.
                 if (!isMainFrame || !ChessComHostPolicy.isAllowed(
                         sourceOrigin.scheme,
                         sourceOrigin.host
@@ -171,11 +208,53 @@ class MainActivity : ComponentActivity() {
         webView.loadUrl("https://www.chess.com/")
     }
 
+    private fun analyzePosition() {
+        val fen = fenInput.text.toString().trim()
+        if (fen.isEmpty()) {
+            resultText.text = "Masukkan FEN terlebih dahulu."
+            return
+        }
+
+        when (val validation = ChessRulesValidator.inspect(fen)) {
+            is ChessRulesResult.Invalid -> {
+                resultText.text = "Posisi tidak valid: ${validation.reason}"
+                return
+            }
+            is ChessRulesResult.Valid -> Unit
+        }
+
+        analyzeButton.isEnabled = false
+        resultText.text = "Stockfish sedang menganalisis…"
+        engine.analyze(fen, depth = 12) { result ->
+            runOnUiThread {
+                analyzeButton.isEnabled = true
+                resultText.text = when (result) {
+                    is EngineResult.Failure -> "Analisis gagal: ${result.reason}"
+                    is EngineResult.Success -> {
+                        val a = result.analysis
+                        buildString {
+                            append("Langkah terbaik (UCI): ${a.bestMoveUci}")
+                            append("\nKedalaman: ${a.depth ?: "—"}")
+                            append("\nEvaluasi: ${a.score ?: "—"}")
+                            if (a.ponderMoveUci != null) {
+                                append("\nPerkiraan balasan: ${a.ponderMoveUci}")
+                            }
+                            if (a.principalVariationUci.isNotEmpty()) {
+                                append("\nVariasi: ${a.principalVariationUci.joinToString(" ")}")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun isAllowedChessComUri(uri: Uri): Boolean {
         return ChessComHostPolicy.isAllowed(uri.scheme, uri.host)
     }
 
     override fun onDestroy() {
+        if (::engine.isInitialized) engine.close()
         if (::webView.isInitialized) {
             webView.stopLoading()
             webView.removeAllViews()

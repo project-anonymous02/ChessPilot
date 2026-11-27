@@ -1,6 +1,8 @@
 package com.chesspilot.engine
 
 import android.content.Context
+import com.chesspilot.chess.ChessRulesResult
+import com.chesspilot.chess.ChessRulesValidator
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.Closeable
@@ -41,16 +43,17 @@ class StockfishEngine(context: Context) : Closeable {
     ) {
         require(depth in 1..20) { "Depth harus berada di antara 1 dan 20." }
         executor.execute {
-            val result = runAnalysis(fen, depth)
-            callback(result)
+            callback(runAnalysis(fen, depth))
         }
     }
 
     @Synchronized
     private fun runAnalysis(fen: String, depth: Int): EngineResult {
         if (closed) return EngineResult.Failure("Engine sudah ditutup.")
-        val validated = ChessFenGate.validate(fen)
-        if (validated != null) return EngineResult.Failure(validated)
+        when (val validation = ChessRulesValidator.inspect(fen)) {
+            is ChessRulesResult.Invalid -> return EngineResult.Failure(validation.reason)
+            is ChessRulesResult.Valid -> Unit
+        }
 
         val binary = File(appContext.applicationInfo.nativeLibraryDir, "libstockfish.so")
         if (!binary.isFile || !binary.canExecute()) {
@@ -155,13 +158,5 @@ class StockfishEngine(context: Context) : Closeable {
         closed = true
         stop()
         executor.shutdownNow()
-    }
-}
-
-/** Keep FEN validation in front of the external engine process. */
-private object ChessFenGate {
-    fun validate(fen: String): String? = when (val result = com.chesspilot.chess.FenParser.parse(fen)) {
-        is com.chesspilot.chess.FenParseResult.Valid -> null
-        is com.chesspilot.chess.FenParseResult.Invalid -> result.reason
     }
 }
