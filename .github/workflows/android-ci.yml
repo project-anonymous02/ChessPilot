@@ -18,7 +18,7 @@ jobs:
   build-and-test:
     name: Build and unit test
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -33,14 +33,44 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          # The legacy "tools" package was removed from current SDK repositories.
-          # Install only packages that still exist and are used by this build.
           packages: platform-tools platforms;android-35 build-tools;35.0.0
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+
+      - name: Cache Stockfish 19 Android binary
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libstockfish.so
+          key: stockfish-19-android-arm64-ebb24051aa4a222b
+
+      - name: Download and verify Stockfish 19 ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENGINE_DIR="app/src/main/jniLibs/arm64-v8a"
+          ENGINE="$ENGINE_DIR/libstockfish.so"
+          mkdir -p "$ENGINE_DIR"
+          if [[ ! -s "$ENGINE" ]]; then
+            curl --fail --location --retry 3 \
+              "https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-android-arm64-universal.tar.gz" \
+              --output /tmp/stockfish-android-arm64.tar.gz
+            echo "ebb24051aa4a222b4daaf049b882ecf1163d370c128fe02316602643f4d5e426  /tmp/stockfish-android-arm64.tar.gz" | sha256sum --check
+            mkdir -p /tmp/stockfish-extract
+            tar -xzf /tmp/stockfish-android-arm64.tar.gz -C /tmp/stockfish-extract
+            ENGINE_SOURCE="$(find /tmp/stockfish-extract -type f -name 'stockfish-android-arm64-universal' -print -quit)"
+            if [[ -z "$ENGINE_SOURCE" ]]; then
+              ENGINE_SOURCE="$(find /tmp/stockfish-extract -type f -name 'stockfish' -print -quit)"
+            fi
+            test -n "$ENGINE_SOURCE"
+            file "$ENGINE_SOURCE" | grep -E 'ELF 64-bit.*(ARM aarch64|ARM64)'
+            install -m 755 "$ENGINE_SOURCE" "$ENGINE"
+          fi
+          test -x "$ENGINE"
+          sha256sum "$ENGINE"
+          file "$ENGINE"
 
       - name: Verify Gradle
         run: gradle --version
