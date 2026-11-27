@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
 
         fenInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            singleLine = false
+            setSingleLine(false)
             minLines = 2
             maxLines = 3
             textSize = 12f

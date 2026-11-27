@@ -61,7 +61,7 @@ class StockfishEngine(context: Context) : Closeable {
         }
 
         var child: Process? = null
-        try {
+        return try {
             child = ProcessBuilder(binary.absolutePath)
                 .redirectErrorStream(true)
                 .start()
@@ -127,7 +127,8 @@ class StockfishEngine(context: Context) : Closeable {
                 }
             }
 
-            val move = bestMove ?: throw IllegalStateException("Stockfish tidak menghasilkan langkah terbaik.")
+            val move = bestMove
+                ?: throw IllegalStateException("Stockfish tidak menghasilkan langkah terbaik.")
             send("quit")
             child.waitFor(1, TimeUnit.SECONDS)
 
