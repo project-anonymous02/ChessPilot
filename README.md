@@ -15,6 +15,9 @@ Do not use engine recommendations during live games against human opponents on C
 
 This milestone intentionally does not read or overlay a live human game's board from Chess.com. It does not automate moves.
 
+## Open-source design references
+See docs/OPEN_SOURCE_REFERENCES.md for the reviewed chessboard and screenshot-recognition projects, their licenses, the design concepts used, and limitations that must be addressed before adopting screenshot recognition.
+
 ## Current limitations
 - Position entry is currently by FEN; automatic Chess.com board recognition is not implemented.
 - The board currently renders the single best-move arrow, not Multi-PV candidate arrows.
@@ -25,4 +28,4 @@ This milestone intentionally does not read or overlay a live human game's board 
 Run the Android CI workflow. The debug APK is produced by the workflow artifact when tests and assembly succeed.
 
 ## Third-party notices
-Stockfish is GPL-3.0. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Stockfish is GPL-3.0. See THIRD_PARTY_NOTICES.md.
