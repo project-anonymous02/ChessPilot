@@ -153,7 +153,7 @@ class ChessComActivity : ComponentActivity() {
         val requestId = ++generation
         engine.stop()
         status.text = "Papan valid • " + source + " • Stockfish menganalisis…"
-        engine.analyze(lastFen, depth = 12) { result ->
+        engine.analyze(lastFen, depth = 10) { result ->
             runOnUiThread {
                 if (requestId != generation || isFinishing || isDestroyed) return@runOnUiThread
                 when (result) {
@@ -313,10 +313,12 @@ class ChessComActivity : ComponentActivity() {
       };
       const a=center(from),z=center(to),svg=ensureOverlay();
       svg.querySelector('#cp-arrow').setAttribute('d','M'+a[0]+' '+a[1]+' L'+z[0]+' '+z[1]);
+      this.last={from,to};
     },
     clear() {
       const p=document.querySelector('#chesspilot-live-overlay #cp-arrow');
       if (p) p.setAttribute('d','');
+      this.last=null;
     }
   };
 
@@ -329,13 +331,17 @@ class ChessComActivity : ComponentActivity() {
     if (state.fen===previous) stable++; else { previous=state.fen; stable=1; }
     if (stable<2 || sent===state.fen) return;
     sent=state.fen;
-    window.ChessPilotOverlay.clear();
+    // Keep the previous recommendation visible until Stockfish returns the next one.
     try { window.ChessPilotNative.onBoardState(JSON.stringify(state), TOKEN); } catch (_) {}
   }
-  const observer=new MutationObserver(scan);
-  observer.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class','game-fen','fen','data-turn']});
-  window.addEventListener('resize',window.ChessPilotOverlay.clear,{passive:true});
-  setInterval(scan,450);
+  let scheduled=false;
+  function scheduleScan(){ if(scheduled) return; scheduled=true; setTimeout(()=>{scheduled=false;scan();},500); }
+  const observer=new MutationObserver(scheduleScan);
+  observer.observe(document.documentElement,{subtree:true,childList:true});
+  const redraw=()=>{ if(window.ChessPilotOverlay.last) window.ChessPilotOverlay.draw(window.ChessPilotOverlay.last.from,window.ChessPilotOverlay.last.to); };
+  window.addEventListener('resize',redraw,{passive:true});
+  window.addEventListener('scroll',redraw,{passive:true});
+  setInterval(scan,1000);
   scan();
   notify('Chess.com • DOM monitor aktif');
 })();

@@ -9,9 +9,10 @@ import java.io.Closeable
 import java.io.File
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 data class EngineAnalysis(
     val bestMoveUci: String,
@@ -32,7 +33,8 @@ sealed interface EngineResult {
  */
 class StockfishEngine(context: Context) : Closeable {
     private val appContext = context.applicationContext
-    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val requestGeneration = AtomicLong(0)
+    private val executor = ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue())
     @Volatile private var process: Process? = null
     @Volatile private var closed = false
 
@@ -42,8 +44,14 @@ class StockfishEngine(context: Context) : Closeable {
         callback: (EngineResult) -> Unit
     ) {
         require(depth in 1..20) { "Depth harus berada di antara 1 dan 20." }
+        val requestId = requestGeneration.incrementAndGet()
+        executor.queue.clear()
+        process?.destroyForcibly()
+        process = null
         executor.execute {
-            callback(runAnalysis(fen, depth))
+            if (closed || requestId != requestGeneration.get()) return@execute
+            val result = runAnalysis(fen, depth)
+            if (!closed && requestId == requestGeneration.get()) callback(result)
         }
     }
 
@@ -90,8 +98,8 @@ class StockfishEngine(context: Context) : Closeable {
 
             send("uci")
             waitForToken("uciok")
-            send("setoption name Threads value 2")
-            send("setoption name Hash value 48")
+            send("setoption name Threads value 1")
+            send("setoption name Hash value 24")
             send("isready")
             waitForToken("readyok")
             send("position fen $fen")
@@ -151,13 +159,18 @@ class StockfishEngine(context: Context) : Closeable {
     }
 
     fun stop() {
+        requestGeneration.incrementAndGet()
+        executor.queue.clear()
         process?.destroyForcibly()
         process = null
     }
 
     override fun close() {
         closed = true
-        stop()
+        requestGeneration.incrementAndGet()
+        executor.queue.clear()
+        process?.destroyForcibly()
+        process = null
         executor.shutdownNow()
     }
 }
