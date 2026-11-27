@@ -4,14 +4,10 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import com.chesspilot.chess.ChessBoardPosition
-import kotlin.math.atan2
-import kotlin.math.cos
 import kotlin.math.min
-import kotlin.math.sin
 
 /** A lightweight native board renderer with a best-move arrow overlay. */
 class ChessBoardView @JvmOverloads constructor(
@@ -28,11 +24,6 @@ class ChessBoardView @JvmOverloads constructor(
     private val piecePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
         typeface = android.graphics.Typeface.create("serif", android.graphics.Typeface.BOLD)
-    }
-    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeJoin = Paint.Join.ROUND
-        strokeCap = Paint.Cap.ROUND
     }
     private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = arrowColor
@@ -58,8 +49,8 @@ class ChessBoardView @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
-        val desired = min(width, MeasureSpec.getSize(heightMeasureSpec).takeIf { it > 0 } ?: width)
-        setMeasuredDimension(width, desired)
+        val availableHeight = MeasureSpec.getSize(heightMeasureSpec).takeIf { it > 0 } ?: width
+        setMeasuredDimension(width, min(width, availableHeight))
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -67,6 +58,11 @@ class ChessBoardView @JvmOverloads constructor(
         val boardSize = min(width.toFloat(), height.toFloat())
         if (boardSize <= 0f) return
         val tile = boardSize / 8f
+        val left = (width - boardSize) / 2f
+        val top = (height - boardSize) / 2f
+
+        canvas.save()
+        canvas.translate(left, top)
 
         for (rank in 0..7) {
             for (file in 0..7) {
@@ -84,6 +80,7 @@ class ChessBoardView @JvmOverloads constructor(
         }
 
         bestMove?.let { drawArrow(canvas, it, tile) }
+        canvas.restore()
     }
 
     private fun drawPiece(canvas: Canvas, piece: Char, file: Int, rank: Int, tile: Float) {
@@ -102,13 +99,13 @@ class ChessBoardView @JvmOverloads constructor(
         val baseline = centerY - (piecePaint.ascent() + piecePaint.descent()) / 2f
         val isWhite = piece.isUpperCase()
 
-        outlinePaint.strokeWidth = tile * 0.035f
-        outlinePaint.color = if (isWhite) 0xFF333333.toInt() else 0xFFEFE7D8.toInt()
-        piecePaint.color = if (isWhite) whitePiece else blackPiece
         piecePaint.style = Paint.Style.STROKE
         piecePaint.strokeWidth = tile * 0.035f
+        piecePaint.color = if (isWhite) 0xFF333333.toInt() else 0xFFEFE7D8.toInt()
         canvas.drawText(glyph, x, baseline, piecePaint)
+
         piecePaint.style = Paint.Style.FILL
+        piecePaint.color = if (isWhite) whitePiece else blackPiece
         canvas.drawText(glyph, x, baseline, piecePaint)
     }
 
@@ -117,7 +114,7 @@ class ChessBoardView @JvmOverloads constructor(
         val to = squareCenter(move.substring(2, 4), tile) ?: return
         val dx = to.first - from.first
         val dy = to.second - from.second
-        val length = kotlin.math.hypot(dx, dy)
+        val length = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
         if (length < 1f) return
 
         val ux = dx / length

@@ -46,8 +46,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         engine = StockfishEngine(this)
-        showFairPlayNoticeIfNeeded()
         buildInterface()
+        showFairPlayNoticeIfNeeded()
         scheduleAnalysis(initialFen)
     }
 
@@ -99,10 +99,8 @@ class MainActivity : ComponentActivity() {
         }
         val boardParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
+            dp(340)
         ).apply {
-            width = ViewGroup.LayoutParams.MATCH_PARENT
-            height = dp(340)
             gravity = Gravity.CENTER_HORIZONTAL
         }
         root.addView(boardView, boardParams)
@@ -208,7 +206,7 @@ class MainActivity : ComponentActivity() {
                             val analysis = result.analysis
                             boardView.setPosition(fen, analysis.bestMoveUci)
                             statusText.text = "Analisis selesai • kedalaman ${analysis.depth ?: "—"}"
-                            moveText.text = describeMove(fen, analysis.bestMoveUci)
+                            moveText.text = describeMove(analysis.bestMoveUci)
                             detailText.text = buildString {
                                 append("Evaluasi: ${analysis.score ?: "—"}")
                                 if (analysis.ponderMoveUci != null) {
@@ -227,7 +225,7 @@ class MainActivity : ComponentActivity() {
         handler.postDelayed(task, 700L)
     }
 
-    private fun describeMove(fen: String, uci: String): String {
+    private fun describeMove(uci: String): String {
         if (uci == "(none)" || uci.length < 4) return "Tidak ada langkah legal"
         val piece = boardView.pieceAtSquare(uci.substring(0, 2))
         val pieceName = when (piece?.lowercaseChar()) {
