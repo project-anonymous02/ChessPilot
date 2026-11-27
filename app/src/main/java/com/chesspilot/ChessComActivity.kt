@@ -328,9 +328,14 @@ class ChessComActivity : ComponentActivity() {
       if (empty) placement+=empty;
       if (rank>1) placement+='/';
     }
-    const turn = board.getAttribute('data-turn') ||
-      (board.game && typeof board.game.getTurn === 'function' ? board.game.getTurn() : '') ||
-      (board.game && typeof board.game.turn === 'function' ? board.game.turn() : '');
+    let gameTurn = '';
+    try {
+      const game = board.game;
+      if (game && typeof game.getTurn === 'function') gameTurn = game.getTurn();
+      else if (game && typeof game.turn === 'function') gameTurn = game.turn();
+    } catch (_) {}
+    const rawTurn = board.getAttribute('data-turn') || gameTurn;
+    const turn = rawTurn === 'white' ? 'w' : rawTurn === 'black' ? 'b' : rawTurn;
     if (turn !== 'w' && turn !== 'b') return null;
     // Approximation only: board placement cannot recover castling/en-passant history
     // or move counters. stateFor() marks this result as metadata-incomplete.
@@ -421,21 +426,7 @@ class ChessComActivity : ComponentActivity() {
       retryAfter=Date.now()+Math.min(1000*Math.pow(2,retryCount-1),8000);
     }
   }
-  let scanScheduled=false, observedBoard=null;
-  const boardObserver=new MutationObserver(()=>{
-    if(scanScheduled) return;
-    scanScheduled=true;
-    setTimeout(()=>{scanScheduled=false;scan(observedBoard);},250);
-  });
-  function bindBoard(board) {
-    if(board===observedBoard) return;
-    boardObserver.disconnect();
-    observedBoard=board;
-    if(!board) return;
-    const options={subtree:true,childList:true,attributes:true,attributeFilter:['class','data-turn','game-fen','fen']};
-    boardObserver.observe(board,options);
-    if(board.shadowRoot) boardObserver.observe(board.shadowRoot,options);
-  }
+  let redrawScheduled=false;
   const redraw=()=>{
     if(!window.ChessPilotOverlay.last || redrawScheduled) return;
     redrawScheduled=true;
@@ -444,8 +435,30 @@ class ChessComActivity : ComponentActivity() {
       if(window.ChessPilotOverlay.last) window.ChessPilotOverlay.draw(window.ChessPilotOverlay.last.from,window.ChessPilotOverlay.last.to);
     });
   };
-  let redrawScheduled=false;
-  setInterval(()=>{ const board=boardElement(); bindBoard(board); scan(board); },1000);
+  let scanScheduled=false, observedBoard=null;
+  const boardObserver=new MutationObserver((records)=>{
+    // Flipping the board changes coordinates without necessarily changing FEN.
+    if(records.some(record=>record.type==='attributes' && record.target===observedBoard && record.attributeName==='class')) redraw();
+    if(scanScheduled) return;
+    scanScheduled=true;
+    setTimeout(()=>{scanScheduled=false;scan(observedBoard);},250);
+  });
+  function bindBoard(board) {
+    if(board===observedBoard) return false;
+    boardObserver.disconnect();
+    observedBoard=board;
+    if(!board) return true;
+    const options={subtree:true,childList:true,attributes:true,attributeFilter:['class','data-turn','game-fen','fen']};
+    boardObserver.observe(board,options);
+    if(board.shadowRoot) boardObserver.observe(board.shadowRoot,options);
+    return true;
+  }
+  setInterval(()=>{
+    const board=boardElement();
+    const boardChanged=bindBoard(board);
+    scan(board);
+    if(boardChanged) redraw();
+  },1000);
   window.addEventListener('resize',redraw,{passive:true});
   window.addEventListener('scroll',redraw,{passive:true});
   scan();
