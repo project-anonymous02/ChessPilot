@@ -27,6 +27,7 @@ class ChessComActivity : ComponentActivity() {
     private lateinit var engine: StockfishEngine
     private var lastFen = ""
     private var generation = 0
+    private val bridgeToken = java.util.UUID.randomUUID().toString()
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,7 +106,7 @@ class ChessComActivity : ComponentActivity() {
                 val host = runCatching { android.net.Uri.parse(url).host.orEmpty() }.getOrDefault("")
                 if (host == "chess.com" || host.endsWith(".chess.com")) {
                     status.text = "Chess.com • DOM monitor aktif"
-                    view.evaluateJavascript(BOARD_MONITOR_SCRIPT, null)
+                    view.evaluateJavascript(BOARD_MONITOR_SCRIPT.replace("__CP_TOKEN__", bridgeToken), null)
                 }
             }
         }
@@ -117,16 +118,18 @@ class ChessComActivity : ComponentActivity() {
         showFairPlayNotice()
     }
 
-    private inner class BoardBridge {
+    inner class BoardBridge {
         @JavascriptInterface
-        fun onBoardState(payload: String) {
+        fun onBoardState(payload: String, token: String) {
+            if (token != bridgeToken || payload.length > 4096) return
             runOnUiThread {
                 if (!isFinishing && !isDestroyed) handleBoardState(payload)
             }
         }
 
         @JavascriptInterface
-        fun onMonitorStatus(message: String) {
+        fun onMonitorStatus(message: String, token: String) {
+            if (token != bridgeToken) return
             runOnUiThread {
                 if (!isFinishing && !isDestroyed && lastFen.isBlank()) status.text = message
             }
@@ -220,7 +223,8 @@ class ChessComActivity : ComponentActivity() {
 (function () {
   if (window.__chessPilotMonitorInstalled) return;
   window.__chessPilotMonitorInstalled = true;
-  const notify = (s) => { try { window.ChessPilotNative.onMonitorStatus(s); } catch (_) {} };
+  const TOKEN = "__CP_TOKEN__";
+  const notify = (s) => { try { window.ChessPilotNative.onMonitorStatus(s, TOKEN); } catch (_) {} };
 
   function boardElement() {
     return Array.from(document.querySelectorAll('wc-chess-board')).find((b) => {
@@ -326,7 +330,7 @@ class ChessComActivity : ComponentActivity() {
     if (stable<2 || sent===state.fen) return;
     sent=state.fen;
     window.ChessPilotOverlay.clear();
-    try { window.ChessPilotNative.onBoardState(JSON.stringify(state)); } catch (_) {}
+    try { window.ChessPilotNative.onBoardState(JSON.stringify(state), TOKEN); } catch (_) {}
   }
   const observer=new MutationObserver(scan);
   observer.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class','game-fen','fen','data-turn']});
