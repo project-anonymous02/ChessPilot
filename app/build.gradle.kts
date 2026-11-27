@@ -12,7 +12,9 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.2.0"
+
+        testOptions.unitTests.isReturnDefaultValues = true
     }
 
     compileOptions {
@@ -33,6 +35,9 @@ dependencies {
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-ktx:1.10.1")
+
+    // Rules layer for legal move generation and FEN/PGN support.
+    implementation("com.github.bhlangonijr:chesslib:1.3.7")
 
     testImplementation("junit:junit:4.13.2")
 }

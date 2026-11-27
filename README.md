@@ -1,48 +1,43 @@
 # ChessPilot
 
-**ChessPilot** is an Android companion shell for Chess.com. This repository starts with a secure embedded browser and a native status panel; board recognition and engine analysis are separate phases and are not yet enabled.
+ChessPilot is an Android companion shell for Chess.com, with a staged path toward safe board recognition and post-game / bot-game analysis.
 
-## Current milestone: Android foundation
+## Current milestone: Android shell + chess core
 
-- Kotlin Android application
-- Chess.com hosted in Android WebView
-- HTTPS-only navigation restricted to `chess.com` and its subdomains
-- Local file/content access disabled in WebView
-- AndroidX WebMessageListener restricted to Chess.com origins when supported
-- JVM unit tests for the host allowlist
-- GitHub Actions workflow that runs unit tests, assembles a debug APK, and uploads it as an artifact
+- Kotlin Android application with embedded Chess.com WebView
+- HTTPS navigation restricted to chess.com and its subdomains
+- File/content access disabled in WebView
+- Origin-restricted AndroidX WebMessageListener (no page-to-native commands enabled yet)
+- Strict structural six-field FEN parser
+- Chesslib 1.3.7 adapter for legal move generation and UCI move checks
+- JUnit regression tests
+- GitHub Actions CI builds a debug APK and uploads test reports
 
 ## Build and test
 
-The CI uses JDK 17 and Gradle 8.11.1:
+CI uses JDK 17 and Gradle 8.11.1:
 
 ```bash
 gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
 ```
 
-APK output:
-
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
-
 ## Roadmap
 
-1. Verify the Android WebView login and navigation behavior on a physical device.
-2. Discover the live Chess.com board DOM without assuming undocumented selectors.
-3. Implement DOM position extraction and compare it against trusted PGN/FEN data.
-4. Build and evaluate the Vision fallback for six piece types and empty squares.
-5. Add complete position reconstruction and legality validation.
-6. Integrate Stockfish only for bot games and completed-game analysis.
-7. Add regression tests, performance checks, and Android device testing.
+1. Verify Chess.com WebView login and navigation on a physical device.
+2. Inspect the actual Chess.com board DOM and supported metadata.
+3. Implement DOM extraction and cross-check it with verified PGN/FEN positions.
+4. Add Vision fallback and piece classifier.
+5. Add PGN replay as the source of truth for side-to-move, castling, en-passant, and counters.
+6. Integrate Stockfish after position validation.
+7. Add fair-play mode gating and comprehensive Android device tests.
 
 ## Fair-play boundary
 
-ChessPilot must not provide engine move recommendations during an ongoing game against a human. Engine analysis is intended for bot games where permitted and for completed-game review. If game mode or position validity is uncertain, engine output remains disabled.
+No engine recommendations during an ongoing game against a human. Analysis is intended for permitted bot games and completed-game review. Unknown game mode or uncertain board state disables engine output.
 
-## Known limitations
+## Current limitations
 
-- No board reader is implemented yet.
-- No Stockfish binary or engine integration is included yet.
-- The current app has not been runtime-tested on a physical Android device.
-- CI compilation and unit tests are not a substitute for WebView device testing.
+- No DOM reader or Vision classifier yet.
+- No Stockfish binary or UCI engine integration yet.
+- The FEN parser checks structure; Chesslib generates legal moves from a loaded FEN, but this does not prove a FEN was reached from authentic game history.
+- Physical-device installation and WebView runtime testing remain outstanding.
