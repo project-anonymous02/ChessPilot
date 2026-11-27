@@ -23,7 +23,8 @@ class ChessComActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var status: TextView
     private lateinit var engine: StockfishEngine
-    private var lastFen = ""
+    private var lastPositionKey = ""
+    private var pendingPositionKey = ""
     private var generation = 0
     private val bridgeToken = java.util.UUID.randomUUID().toString()
 
@@ -97,6 +98,12 @@ class ChessComActivity : ComponentActivity() {
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                // A navigation creates a fresh JavaScript document and overlay. Reset
+                // native deduplication so an identical FEN on the new page is analyzed again.
+                generation++
+                lastPositionKey = ""
+                pendingPositionKey = ""
+                if (::engine.isInitialized) engine.stop()
                 status.text = "Memuat Chess.com…"
             }
 
@@ -129,7 +136,7 @@ class ChessComActivity : ComponentActivity() {
         fun onMonitorStatus(message: String, token: String) {
             if (token != bridgeToken) return
             runOnUiThread {
-                if (!isFinishing && !isDestroyed && lastFen.isBlank()) status.text = message
+                if (!isFinishing && !isDestroyed && lastPositionKey.isBlank()) status.text = message
             }
         }
     }
@@ -138,19 +145,34 @@ class ChessComActivity : ComponentActivity() {
         val data = runCatching { JSONObject(payload) }.getOrNull() ?: return
         val fen = data.optString("fen").trim()
         val source = data.optString("source", "DOM")
-        if (fen.isBlank() || fen == lastFen) return
+        val metadataComplete = data.optBoolean("metadataComplete", true)
+        val fallbackKey = fen + if (metadataComplete) "|complete" else "|incomplete"
+        val positionKey = data.optString("key").ifBlank { fallbackKey }
+        if (fen.isBlank() || positionKey == pendingPositionKey ||
+            (positionKey == lastPositionKey && pendingPositionKey.isBlank())
+        ) return
 
-        lastFen = fen
+        // Do not mark a position as processed until validation and analysis succeed.
+        // A failed request is acknowledged as retryable by the JavaScript monitor.
+        pendingPositionKey = positionKey
         val requestId = ++generation
-        status.text = "Memvalidasi posisi • " + source + "…"
-        // FEN validation and legal-move generation run on StockfishEngine's worker,
-        // never on the Android UI thread.
+        status.text = if (metadataComplete) {
+            "Memvalidasi posisi • " + source + "…"
+        } else {
+            "Memvalidasi posisi • DOM fallback (metadata riwayat tidak lengkap)…"
+        }
         engine.analyze(fen, depth = 12) { result ->
             runOnUiThread {
                 if (requestId != generation || isFinishing || isDestroyed) return@runOnUiThread
+                pendingPositionKey = ""
                 when (result) {
-                    is EngineResult.Failure -> status.text = "Posisi/engine gagal: " + result.reason
+                    is EngineResult.Failure -> {
+                        status.text = "Posisi/engine gagal: " + result.reason
+                        acknowledgeMonitor(positionKey, accepted = false)
+                    }
                     is EngineResult.Success -> {
+                        lastPositionKey = positionKey
+                        acknowledgeMonitor(positionKey, accepted = true)
                         val move = result.analysis.bestMoveUci
                         if (move.length >= 4 && move != "(none)") {
                             val from = JSONObject.quote(move.substring(0, 2))
@@ -159,7 +181,9 @@ class ChessComActivity : ComponentActivity() {
                                 "window.ChessPilotOverlay && window.ChessPilotOverlay.draw(" + from + "," + to + ")",
                                 null
                             )
-                            status.text = "Papan " + source + " • " + move.substring(0, 2) +
+                            val accuracyNote = if (metadataComplete) "" else
+                                " • ESTIMASI: metadata rokade/en-passant/clock tidak diketahui"
+                            status.text = "Papan " + source + accuracyNote + " • " + move.substring(0, 2) +
                                 " → " + move.substring(2, 4) + " • depth " +
                                 (result.analysis.depth?.toString() ?: "—") + " • " +
                                 (result.analysis.score ?: "—")
@@ -168,6 +192,15 @@ class ChessComActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun acknowledgeMonitor(positionKey: String, accepted: Boolean) {
+        if (!::webView.isInitialized || isFinishing || isDestroyed) return
+        val key = JSONObject.quote(positionKey)
+        webView.evaluateJavascript(
+            "window.ChessPilotMonitor && window.ChessPilotMonitor.acknowledge(" + key + "," + accepted + ")",
+            null
+        )
     }
 
     private fun showFairPlayNotice() {
@@ -240,14 +273,28 @@ class ChessComActivity : ComponentActivity() {
     return r.width>100 && r.height>100 && Math.abs(r.width-r.height)<40 ? cachedBoard : null;
   }
 
+  function normalizeFullFen(value) {
+    if (typeof value !== 'string') return null;
+    const fields = value.trim().split(/\s+/);
+    return fields.length === 6 ? fields.join(' ') : null;
+  }
+
   function getFullFen(board) {
+    const candidates = [];
     try {
       const game = board.game;
-      if (game && typeof game.getFEN === 'function') return game.getFEN();
-      if (game && typeof game.getFen === 'function') return game.getFen();
-      const attr = board.getAttribute('game-fen') || board.getAttribute('fen');
-      if (attr && attr.trim().split(/\s+/).length >= 4) return attr.trim();
+      if (game && typeof game.getFEN === 'function') candidates.push(game.getFEN());
     } catch (_) {}
+    try {
+      const game = board.game;
+      if (game && typeof game.getFen === 'function') candidates.push(game.getFen());
+    } catch (_) {}
+    try { candidates.push(board.getAttribute('game-fen')); } catch (_) {}
+    try { candidates.push(board.getAttribute('fen')); } catch (_) {}
+    for (const candidate of candidates) {
+      const complete = normalizeFullFen(candidate);
+      if (complete) return complete;
+    }
     return null;
   }
 
@@ -285,15 +332,18 @@ class ChessComActivity : ComponentActivity() {
       (board.game && typeof board.game.getTurn === 'function' ? board.game.getTurn() : '') ||
       (board.game && typeof board.game.turn === 'function' ? board.game.turn() : '');
     if (turn !== 'w' && turn !== 'b') return null;
-    // DOM-only fallback cannot recover castling/en-passant history, so it fails closed for those rights.
+    // Approximation only: board placement cannot recover castling/en-passant history
+    // or move counters. stateFor() marks this result as metadata-incomplete.
     return placement + ' ' + turn + ' - - 0 1';
   }
 
   function stateFor(board) {
     const fen = getFullFen(board);
-    if (fen && fen.trim().split(/\s+/).length >= 4) return {fen:fen.trim(),source:'Chess.com game state'};
+    if (fen) return {fen,source:'Chess.com game state',metadataComplete:true};
     const fallback = getDomFen(board);
-    return fallback ? {fen:fallback,source:'DOM fallback'} : null;
+    // DOM placement alone cannot recover move-history metadata. Keep the fallback
+    // available, but label its analysis as an estimate instead of a complete FEN.
+    return fallback ? {fen:fallback,source:'DOM fallback',metadataComplete:false} : null;
   }
 
   function ensureOverlay() {
@@ -329,17 +379,47 @@ class ChessComActivity : ComponentActivity() {
     }
   };
 
-  let previous='', stable=0, sent='';
+  let previousKey='', stable=0, sentKey='', pendingKey='', retryCount=0, retryAfter=0;
+  window.ChessPilotMonitor = {
+    acknowledge(key, accepted) {
+      if (pendingKey !== key) return;
+      pendingKey = '';
+      if (accepted) {
+        sentKey = key;
+        retryCount = 0;
+        retryAfter = 0;
+      } else {
+        retryCount = Math.min(retryCount + 1, 4);
+        retryAfter = Date.now() + Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
+      }
+    }
+  };
+
   function scan(boardHint) {
     const b=boardHint || boardElement();
     if (!b) { notify('Chess.com • papan belum ditemukan'); return; }
     const state=stateFor(b);
-    if (!state) { stable=0; notify('Papan ditemukan • menunggu FEN dan giliran'); return; }
-    if (state.fen===previous) stable++; else { previous=state.fen; stable=1; }
-    if (stable<2 || sent===state.fen) return;
-    sent=state.fen;
+    if (!state) { stable=0; notify('Papan ditemukan • menunggu FEN lengkap dan giliran'); return; }
+    const key = state.fen + (state.metadataComplete ? '|complete' : '|incomplete');
+    if (key===previousKey) stable++; else {
+      previousKey=key;
+      stable=1;
+      retryCount=0;
+      retryAfter=0;
+    }
+    // A different in-flight request must be superseded even when this position
+    // matches the last successful one (for example A → B → A before B completes).
+    if (stable<2 || pendingKey===key || (sentKey===key && !pendingKey) || Date.now()<retryAfter) return;
+    pendingKey=key;
     // Keep the previous recommendation visible until Stockfish returns the next one.
-    try { window.ChessPilotNative.onBoardState(JSON.stringify(state), TOKEN); } catch (_) {}
+    try {
+      state.key=key;
+      window.ChessPilotNative.onBoardState(JSON.stringify(state), TOKEN);
+    } catch (_) {
+      if (pendingKey===key) pendingKey='';
+      retryCount=Math.min(retryCount+1,4);
+      retryAfter=Date.now()+Math.min(1000*Math.pow(2,retryCount-1),8000);
+    }
   }
   let scanScheduled=false, observedBoard=null;
   const boardObserver=new MutationObserver(()=>{

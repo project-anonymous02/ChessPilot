@@ -32,10 +32,13 @@ class StockfishEngine(context: Context) : Closeable {
     private val appContext = context.applicationContext
     private val requestGeneration = AtomicLong(0)
     private val executor = ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue())
+    // Serializes request replacement with the exact point where a UCI search starts.
+    private val requestLock = Any()
     private val ioLock = Any()
     @Volatile private var process: Process? = null
     @Volatile private var writer: BufferedWriter? = null
     @Volatile private var reader: BufferedReader? = null // read by the serial worker; cleared during shutdown
+    @Volatile private var searching = false
     @Volatile private var closed = false
 
     fun analyze(fen: String, depth: Int = 12, callback: (EngineResult) -> Unit) {
@@ -49,18 +52,23 @@ class StockfishEngine(context: Context) : Closeable {
 
     private fun enqueue(fen: String, depth: Int, validate: Boolean, callback: (EngineResult) -> Unit) {
         require(depth in 1..20) { "Depth harus berada di antara 1 dan 20." }
-        if (closed) return
-        val requestId = requestGeneration.incrementAndGet()
-        executor.queue.clear()
-        sendCommand("stop") // finish the previous search cleanly; keep the native process alive
-        executor.execute {
-            if (closed || requestId != requestGeneration.get()) return@execute
-            val result = runAnalysis(fen, depth, requestId, validate)
-            if (!closed && requestId == requestGeneration.get()) callback(result)
+        synchronized(requestLock) {
+            if (closed) return
+            val requestId = requestGeneration.incrementAndGet()
+            executor.queue.clear()
+            // If a search is active, stop it while holding the same lock used to
+            // start searches. This closes the stop-before-go race window.
+            if (searching) sendCommand("stop")
+            // Submit before releasing requestLock so close() cannot shut down the
+            // executor between accepting the request and queueing its task.
+            executor.execute {
+                if (closed || requestId != requestGeneration.get()) return@execute
+                val result = runAnalysis(fen, depth, requestId, validate)
+                if (!closed && requestId == requestGeneration.get()) callback(result)
+            }
         }
     }
 
-    @Synchronized
     private fun runAnalysis(fen: String, depth: Int, requestId: Long, validate: Boolean): EngineResult {
         if (closed) return EngineResult.Failure("Engine sudah ditutup.")
         if (validate) {
@@ -72,10 +80,17 @@ class StockfishEngine(context: Context) : Closeable {
         if (closed || requestId != requestGeneration.get()) return EngineResult.Failure("Analisis digantikan posisi terbaru.")
 
         return try {
+            // Engine startup/handshake happens before acquiring requestLock. A newer
+            // request can supersede this one while the process is being initialized.
             ensureEngine()
-            if (closed || requestId != requestGeneration.get()) return EngineResult.Failure("Analisis digantikan posisi terbaru.")
-            sendCommand("position fen $fen")
-            sendCommand("go depth $depth")
+            synchronized(requestLock) {
+                if (closed || requestId != requestGeneration.get()) {
+                    return EngineResult.Failure("Analisis digantikan posisi terbaru.")
+                }
+                sendCommand("position fen $fen")
+                searching = true
+                sendCommand("go depth $depth")
+            }
 
             var latestDepth: Int? = null
             var latestScore: String? = null
@@ -107,19 +122,28 @@ class StockfishEngine(context: Context) : Closeable {
         } catch (exception: Exception) {
             closeEngineProcess()
             EngineResult.Failure(exception.message ?: "Analisis Stockfish gagal.")
+        } finally {
+            synchronized(requestLock) { searching = false }
         }
     }
 
     private fun ensureEngine() {
+        if (closed) throw IllegalStateException("Engine sudah ditutup.")
         val current = process
         if (current?.isAlive == true && writer != null && reader != null) return
         closeEngineProcess()
         val binary = File(appContext.applicationInfo.nativeLibraryDir, "libstockfish.so")
         if (!binary.isFile || !binary.canExecute()) throw IllegalStateException("Stockfish ARM64 tidak ditemukan atau tidak dapat dijalankan.")
         val child = ProcessBuilder(binary.absolutePath).redirectErrorStream(true).start()
-        process = child
-        writer = BufferedWriter(OutputStreamWriter(child.outputStream))
-        reader = BufferedReader(InputStreamReader(child.inputStream))
+        synchronized(ioLock) {
+            if (closed) {
+                child.destroyForcibly()
+                throw IllegalStateException("Engine sudah ditutup.")
+            }
+            process = child
+            writer = BufferedWriter(OutputStreamWriter(child.outputStream))
+            reader = BufferedReader(InputStreamReader(child.inputStream))
+        }
         sendCommand("uci")
         waitForToken("uciok")
         sendCommand("setoption name Threads value 1")
@@ -158,19 +182,24 @@ class StockfishEngine(context: Context) : Closeable {
     }
 
     fun stop() {
-        requestGeneration.incrementAndGet()
-        executor.queue.clear()
-        sendCommand("stop")
+        synchronized(requestLock) {
+            requestGeneration.incrementAndGet()
+            executor.queue.clear()
+            if (searching) sendCommand("stop")
+        }
     }
 
     override fun close() {
-        if (closed) return
-        closed = true
-        requestGeneration.incrementAndGet()
-        executor.queue.clear()
-        sendCommand("quit")
-        // Destroy first so a worker blocked in readLine() is released before streams close.
-        process?.destroyForcibly()
+        synchronized(requestLock) {
+            if (closed) return
+            closed = true
+            requestGeneration.incrementAndGet()
+            executor.queue.clear()
+            if (searching) runCatching { sendCommand("stop") }
+            runCatching { sendCommand("quit") }
+            // Destroy first so a worker blocked in readLine() is released before streams close.
+            process?.destroyForcibly()
+        }
         executor.shutdownNow()
         closeEngineProcess()
     }
