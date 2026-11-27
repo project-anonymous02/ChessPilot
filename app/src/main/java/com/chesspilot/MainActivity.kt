@@ -192,7 +192,7 @@ class MainActivity : ComponentActivity() {
 
         val task = Runnable {
             statusText.text = "Stockfish sedang menghitung langkah terbaik…"
-            engine.analyze(fen, depth = 12) { result ->
+            engine.analyzeValidated(fen, depth = 12) { result ->
                 runOnUiThread {
                     if (generation != analysisGeneration || isFinishing || isDestroyed) return@runOnUiThread
                     when (result) {

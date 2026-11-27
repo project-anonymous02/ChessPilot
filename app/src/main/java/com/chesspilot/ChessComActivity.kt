@@ -14,8 +14,6 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
-import com.chesspilot.chess.ChessRulesResult
-import com.chesspilot.chess.ChessRulesValidator
 import com.chesspilot.engine.EngineResult
 import com.chesspilot.engine.StockfishEngine
 import org.json.JSONObject
@@ -142,22 +140,16 @@ class ChessComActivity : ComponentActivity() {
         val source = data.optString("source", "DOM")
         if (fen.isBlank() || fen == lastFen) return
 
-        when (val validation = ChessRulesValidator.inspect(fen)) {
-            is ChessRulesResult.Invalid -> {
-                status.text = "Posisi belum valid: " + validation.reason
-                return
-            }
-            is ChessRulesResult.Valid -> lastFen = validation.snapshot.normalizedFen
-        }
-
+        lastFen = fen
         val requestId = ++generation
-        engine.stop()
-        status.text = "Papan valid • " + source + " • Stockfish menganalisis…"
-        engine.analyze(lastFen, depth = 10) { result ->
+        status.text = "Memvalidasi posisi • " + source + "…"
+        // FEN validation and legal-move generation run on StockfishEngine's worker,
+        // never on the Android UI thread.
+        engine.analyze(fen, depth = 12) { result ->
             runOnUiThread {
                 if (requestId != generation || isFinishing || isDestroyed) return@runOnUiThread
                 when (result) {
-                    is EngineResult.Failure -> status.text = "Stockfish gagal: " + result.reason
+                    is EngineResult.Failure -> status.text = "Posisi/engine gagal: " + result.reason
                     is EngineResult.Success -> {
                         val move = result.analysis.bestMoveUci
                         if (move.length >= 4 && move != "(none)") {
@@ -226,11 +218,26 @@ class ChessComActivity : ComponentActivity() {
   const TOKEN = "__CP_TOKEN__";
   const notify = (s) => { try { window.ChessPilotNative.onMonitorStatus(s, TOKEN); } catch (_) {} };
 
+  let cachedBoard=null;
   function boardElement() {
-    return Array.from(document.querySelectorAll('wc-chess-board')).find((b) => {
-      const r = b.getBoundingClientRect();
-      return r.width > 100 && r.height > 100 && Math.abs(r.width-r.height) < 40;
-    }) || null;
+    if (cachedBoard && !cachedBoard.isConnected) cachedBoard=null;
+    if (cachedBoard) {
+      const current=cachedBoard.getBoundingClientRect();
+      if (current.width<=100 || current.height<=100 || Math.abs(current.width-current.height)>=40) cachedBoard=null;
+    }
+    if (!cachedBoard) {
+      const candidates=document.querySelectorAll('wc-chess-board');
+      for (const candidate of candidates) {
+        const r=candidate.getBoundingClientRect();
+        if (r.width>100 && r.height>100 && Math.abs(r.width-r.height)<40) {
+          cachedBoard=candidate;
+          break;
+        }
+      }
+    }
+    if (!cachedBoard) return null;
+    const r=cachedBoard.getBoundingClientRect();
+    return r.width>100 && r.height>100 && Math.abs(r.width-r.height)<40 ? cachedBoard : null;
   }
 
   function getFullFen(board) {
@@ -323,8 +330,8 @@ class ChessComActivity : ComponentActivity() {
   };
 
   let previous='', stable=0, sent='';
-  function scan() {
-    const b=boardElement();
+  function scan(boardHint) {
+    const b=boardHint || boardElement();
     if (!b) { notify('Chess.com • papan belum ditemukan'); return; }
     const state=stateFor(b);
     if (!state) { stable=0; notify('Papan ditemukan • menunggu FEN dan giliran'); return; }
@@ -334,14 +341,33 @@ class ChessComActivity : ComponentActivity() {
     // Keep the previous recommendation visible until Stockfish returns the next one.
     try { window.ChessPilotNative.onBoardState(JSON.stringify(state), TOKEN); } catch (_) {}
   }
-  let scheduled=false;
-  function scheduleScan(){ if(scheduled) return; scheduled=true; setTimeout(()=>{scheduled=false;scan();},500); }
-  const observer=new MutationObserver(scheduleScan);
-  observer.observe(document.documentElement,{subtree:true,childList:true});
-  const redraw=()=>{ if(window.ChessPilotOverlay.last) window.ChessPilotOverlay.draw(window.ChessPilotOverlay.last.from,window.ChessPilotOverlay.last.to); };
+  let scanScheduled=false, observedBoard=null;
+  const boardObserver=new MutationObserver(()=>{
+    if(scanScheduled) return;
+    scanScheduled=true;
+    setTimeout(()=>{scanScheduled=false;scan(observedBoard);},250);
+  });
+  function bindBoard(board) {
+    if(board===observedBoard) return;
+    boardObserver.disconnect();
+    observedBoard=board;
+    if(!board) return;
+    const options={subtree:true,childList:true,attributes:true,attributeFilter:['class','data-turn','game-fen','fen']};
+    boardObserver.observe(board,options);
+    if(board.shadowRoot) boardObserver.observe(board.shadowRoot,options);
+  }
+  const redraw=()=>{
+    if(!window.ChessPilotOverlay.last || redrawScheduled) return;
+    redrawScheduled=true;
+    requestAnimationFrame(()=>{
+      redrawScheduled=false;
+      if(window.ChessPilotOverlay.last) window.ChessPilotOverlay.draw(window.ChessPilotOverlay.last.from,window.ChessPilotOverlay.last.to);
+    });
+  };
+  let redrawScheduled=false;
+  setInterval(()=>{ const board=boardElement(); bindBoard(board); scan(board); },1000);
   window.addEventListener('resize',redraw,{passive:true});
   window.addEventListener('scroll',redraw,{passive:true});
-  setInterval(scan,1000);
   scan();
   notify('Chess.com • DOM monitor aktif');
 })();

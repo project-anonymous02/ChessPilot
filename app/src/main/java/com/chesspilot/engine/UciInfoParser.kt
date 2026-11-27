@@ -13,11 +13,12 @@ data class UciInfo(
  */
 object UciInfoParser {
     private val movePattern = Regex("^[a-h][1-8][a-h][1-8][qrbn]?$")
+    private val whitespace = Regex("\\s+")
 
     fun parseInfo(line: String): UciInfo? {
         if (!line.startsWith("info ")) return null
 
-        val tokens = line.trim().split(Regex("\\s+"))
+        val tokens = line.trim().split(whitespace)
         if (tokens.firstOrNull() != "info") return null
 
         val depthIndex = tokens.indexOf("depth")
@@ -53,7 +54,7 @@ object UciInfoParser {
     }
 
     fun parseBestMove(line: String): Pair<String, String?>? {
-        val tokens = line.trim().split(Regex("\\s+"))
+        val tokens = line.trim().split(whitespace)
         if (tokens.size < 2 || tokens[0] != "bestmove") return null
 
         val best = tokens[1]
