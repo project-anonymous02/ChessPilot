@@ -81,7 +81,7 @@ class MainActivity : ComponentActivity() {
         root.addView(header)
 
         val notice = TextView(this).apply {
-            text = "MODE LATIHAN / REVIEW\nEngine otomatis aktif untuk posisi latihan, permainan bot yang diizinkan, dan pertandingan yang sudah selesai. Jangan gunakan rekomendasi engine saat melawan manusia di Chess.com."
+            text = "PERINGATAN FAIR PLAY\nAnalisis engine saat pertandingan melawan manusia dapat melanggar aturan Fair Play Chess.com dan berisiko menyebabkan sanksi akun. Pahami konsekuensinya sebelum menggunakan fitur ini."
             textSize = 12f
             setTextColor(0xFFFFD58A.toInt())
             setPadding(dp(12), dp(11), dp(12), dp(11))
@@ -246,14 +246,14 @@ class MainActivity : ComponentActivity() {
         AlertDialog.Builder(this)
             .setTitle("Peringatan Fair Play")
             .setMessage(
-                "Jangan gunakan engine untuk mendapat bantuan langkah saat bermain melawan manusia di Chess.com. Hal itu melanggar aturan Fair Play Chess.com dan dapat menyebabkan sanksi akun.\n\nChessPilot ditujukan untuk latihan, permainan bot yang diizinkan, dan analisis setelah pertandingan selesai."
+                "ChessPilot dapat menganalisis posisi dengan Stockfish. Penggunaan bantuan engine saat pertandingan melawan manusia dapat melanggar aturan Fair Play Chess.com dan berisiko menyebabkan sanksi akun. Pahami aturan dan konsekuensinya sebelum menggunakan fitur ini."
             )
-            .setCancelable(false)
+            .setCancelable(true)
             .setPositiveButton("Saya mengerti") { dialog, _ ->
                 preferences.edit().putBoolean("fair_play_notice_acknowledged", true).apply()
                 dialog.dismiss()
             }
-            .setNegativeButton("Keluar") { _, _ -> finish() }
+            .setNegativeButton("Nanti", null)
             .show()
     }
 
