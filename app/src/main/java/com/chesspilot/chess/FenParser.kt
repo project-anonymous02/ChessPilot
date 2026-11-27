@@ -3,12 +3,12 @@ package com.chesspilot.chess
 /**
  * Strict structural FEN parser.
  *
- * This validates the six FEN fields and board consistency. It is not a full
+ * It validates the six FEN fields and board consistency. It is not a complete
  * legal-position validator: checks, pins, repetition, and legal move generation
  * belong to the chess rules/engine layer.
  */
 data class ChessPosition(
-    /** 64 squares, ordered rank 8 to rank 1, file a to h; null means empty. */
+    /** 64 squares ordered from rank 8 to rank 1, file a to h; null means empty. */
     val squares: List<Char?>,
     val activeColor: Char,
     val castlingRights: String,
@@ -21,14 +21,14 @@ data class ChessPosition(
         val file = square[0] - 'a'
         val rank = square[1] - '1'
         if (file !in 0..7 || rank !in 0..7) return null
-        val index = (7 - rank) * 8 + file
-        return squares[index]
+        return squares[(7 - rank) * 8 + file]
     }
 
     fun toFen(): String {
         val placement = (0..7).joinToString("/") { rankIndex ->
             val row = StringBuilder()
             var emptyCount = 0
+
             for (file in 0..7) {
                 val piece = squares[rankIndex * 8 + file]
                 if (piece == null) {
@@ -41,9 +41,11 @@ data class ChessPosition(
                     row.append(piece)
                 }
             }
+
             if (emptyCount > 0) row.append(emptyCount)
             row.toString()
         }
+
         return listOf(
             placement,
             activeColor.toString(),
@@ -76,29 +78,42 @@ object FenParser {
         val kingCounts = mutableMapOf('w' to 0, 'b' to 0)
 
         val ranks = fields[0].split("/")
-        if (ranks.size != 8) return invalid("Susunan papan harus memiliki delapan baris.")
+        if (ranks.size != 8) {
+            return invalid("Susunan papan harus memiliki delapan baris.")
+        }
 
-        ranks.forEachIndexed { rankIndex, rankText ->
+        for (rankIndex in ranks.indices) {
+            val rankText = ranks[rankIndex]
             var fileIndex = 0
+            var previousWasDigit = false
+
             for (symbol in rankText) {
                 when {
                     symbol in '1'..'8' -> {
+                        if (previousWasDigit) {
+                            return invalid("Angka kotak kosong yang berurutan tidak valid dalam FEN.")
+                        }
                         fileIndex += symbol.digitToInt()
+                        previousWasDigit = true
                     }
+
                     symbol in PIECES -> {
                         if (fileIndex >= 8) {
                             return invalid("Baris papan melebihi delapan kotak.")
                         }
-                        if (rankIndex == 0 || rankIndex == 7) {
-                            if (symbol.lowercaseChar() == 'p') {
-                                return invalid("Pion tidak boleh berada di baris pertama atau kedelapan.")
-                            }
+                        if ((rankIndex == 0 || rankIndex == 7) &&
+                            symbol.lowercaseChar() == 'p'
+                        ) {
+                            return invalid("Pion tidak boleh berada di baris pertama atau kedelapan.")
                         }
+
                         squares[rankIndex * 8 + fileIndex] = symbol
                         fileIndex++
+                        previousWasDigit = false
 
                         val color = if (symbol.isUpperCase()) 'w' else 'b'
                         pieceCounts[color] = pieceCounts.getValue(color) + 1
+
                         if (symbol.lowercaseChar() == 'p') {
                             pawnCounts[color] = pawnCounts.getValue(color) + 1
                         }
@@ -106,13 +121,17 @@ object FenParser {
                             kingCounts[color] = kingCounts.getValue(color) + 1
                         }
                     }
-                    else -> return invalid("Karakter bidak tidak dikenal: '$symbol'.")
+
+                    else -> {
+                        return invalid("Karakter bidak tidak dikenal: '$symbol'.")
+                    }
                 }
 
                 if (fileIndex > 8) {
                     return invalid("Baris papan melebihi delapan kotak.")
                 }
             }
+
             if (fileIndex != 8) {
                 return invalid("Setiap baris papan harus berjumlah tepat delapan kotak.")
             }
@@ -142,9 +161,13 @@ object FenParser {
             if (castling.toSet().size != castling.length) {
                 return invalid("Hak rokade tidak boleh berisi karakter duplikat.")
             }
-            if (castling != CASTLING_ORDER.filter { it in castling }.joinToString("")) {
+
+            // CASTLING_ORDER.filter returns a String; do not call joinToString on it.
+            val canonicalCastling = CASTLING_ORDER.filter { it in castling }
+            if (castling != canonicalCastling) {
                 return invalid("Urutan hak rokade harus KQkq.")
             }
+
             if ('K' in castling && (squares[60] != 'K' || squares[63] != 'R')) {
                 return invalid("Hak rokade putih sisi raja tidak cocok dengan posisi raja/benteng.")
             }
@@ -166,10 +189,12 @@ object FenParser {
             if (!target.matches(Regex("[a-h][36]"))) {
                 return invalid("Kotak en-passant harus berupa file a-h pada baris 3 atau 6.")
             }
+
             val expectedRank = if (activeColor == 'w') '6' else '3'
             if (target[1] != expectedRank) {
                 return invalid("Baris en-passant tidak cocok dengan pihak yang mendapat giliran.")
             }
+
             val file = target[0] - 'a'
             val targetRankIndex = 8 - target[1].digitToInt()
             val targetIndex = targetRankIndex * 8 + file
@@ -182,19 +207,31 @@ object FenParser {
             val originRankIndex = if (activeColor == 'w') 1 else 6
             val originIndex = originRankIndex * 8 + file
             val expectedPawn = if (activeColor == 'w') 'p' else 'P'
+
             if (squares[pawnIndex] != expectedPawn || squares[originIndex] != null) {
                 return invalid("En-passant tidak didukung oleh langkah pion sebelumnya.")
             }
+
             target
         }
 
+        if (!fields[4].matches(Regex("[0-9]+"))) {
+            return invalid("Halfmove clock harus bilangan bulat non-negatif.")
+        }
         val halfmoveClock = fields[4].toIntOrNull()
-            ?: return invalid("Halfmove clock harus bilangan bulat non-negatif.")
-        if (halfmoveClock < 0) return invalid("Halfmove clock tidak boleh negatif.")
+            ?: return invalid("Halfmove clock berada di luar rentang.")
+        if (halfmoveClock < 0) {
+            return invalid("Halfmove clock tidak boleh negatif.")
+        }
 
+        if (!fields[5].matches(Regex("[0-9]+"))) {
+            return invalid("Fullmove number harus bilangan bulat positif.")
+        }
         val fullmoveNumber = fields[5].toIntOrNull()
-            ?: return invalid("Fullmove number harus bilangan bulat positif.")
-        if (fullmoveNumber < 1) return invalid("Fullmove number minimal 1.")
+            ?: return invalid("Fullmove number berada di luar rentang.")
+        if (fullmoveNumber < 1) {
+            return invalid("Fullmove number minimal 1.")
+        }
 
         return FenParseResult.Valid(
             ChessPosition(

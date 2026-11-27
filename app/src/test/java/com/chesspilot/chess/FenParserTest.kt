@@ -57,6 +57,11 @@ class FenParserTest {
     }
 
     @Test
+    fun rejectsAdjacentEmptyRunDigits() {
+        invalid("11111111/8/8/8/8/8/8/4K2k w - - 0 1")
+    }
+
+    @Test
     fun rejectsUnknownPieceSymbols() {
         invalid("8/8/8/8/8/8/8/4K2X w - - 0 1")
     }
@@ -69,24 +74,25 @@ class FenParserTest {
 
     @Test
     fun rejectsPawnsOnFirstOrEighthRank() {
-        invalid("4k3/8/8/8/8/8/8/P3K3 w - - 0 1")
+        invalid("P3k3/8/8/8/8/8/8/4K3 w - - 0 1")
         invalid("4k2p/8/8/8/8/8/8/4K3 w - - 0 1")
     }
 
     @Test
     fun rejectsMoreThanEightPawnsPerSide() {
-        invalid("4k3/pppppppp/8/8/8/8/PPPPPPPP/PP2KPPP w - - 0 1")
+        invalid("4k3/8/8/8/8/4P3/PPPPPPPP/4K3 w - - 0 1")
     }
 
     @Test
     fun rejectsInvalidActiveColor() {
-        invalid("4k3/8/8/8/8/8/8/4K3/x - - 0 1")
+        invalid("4k3/8/8/8/8/8/8/4K3 x - - 0 1")
     }
 
     @Test
     fun rejectsDuplicateOrInvalidCastlingRights() {
         invalid("r3k2r/8/8/8/8/8/8/R3K2R w KK - 0 1")
         invalid("r3k2r/8/8/8/8/8/8/R3K2R w KX - 0 1")
+        invalid("r3k2r/8/8/8/8/8/8/R3K2R w qK - 0 1")
     }
 
     @Test
@@ -101,10 +107,16 @@ class FenParserTest {
     }
 
     @Test
+    fun rejectsEnPassantTargetThatIsOccupied() {
+        invalid("rnbqkbnr/1pp1pppp/p2p4/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3")
+    }
+
+    @Test
     fun rejectsNegativeOrInvalidMoveCounters() {
         invalid("4k3/8/8/8/8/8/8/4K3 w - - -1 1")
         invalid("4k3/8/8/8/8/8/8/4K3 w - - 0 0")
         invalid("4k3/8/8/8/8/8/8/4K3 w - - nope 1")
+        invalid("4k3/8/8/8/8/8/8/4K3 w - - 0 +1")
     }
 
     @Test
