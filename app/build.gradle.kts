@@ -11,8 +11,8 @@ android {
         applicationId = "com.chesspilot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     compileOptions {
@@ -33,7 +33,6 @@ dependencies {
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-ktx:1.10.1")
-
     implementation("com.github.bhlangonijr:chesslib:1.3.7")
 
     testImplementation("junit:junit:4.13.2")
